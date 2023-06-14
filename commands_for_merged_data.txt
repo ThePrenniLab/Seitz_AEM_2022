@@ -1,0 +1,689 @@
+
+######################################################################################################
+######################################################################################################
+######################################################################################################
+# VALERIE LINDSTROM
+# 8/1/2020
+#
+# Qiime2-2019.10
+#
+# 16S ANALYSIS OF SOIL MICROCOSMS FROM 2019_MERGED DATA FROM BOTH RUNS
+#  1. DIRECTORY STRUCTURE
+#  2. MERGE DATA FROM TWO DIFFERENT RUNS
+#  3. TAXONOMY
+#  4. RAREFY
+#  5. TAXABARPLOT & FILTER
+#  6. ALPHA RAREFACTION
+#  7. TREE 
+#  8. CORE DIVERSITY PLOTS
+#  9. ALPHA DIVERSITY
+#  10. BETA DIVERSITY
+#  11. ANCOM
+#
+######################################################################################################
+######################################################################################################
+######################################################################################################
+
+############
+############
+############
+1. DIRECTORY STRUCTURE
+############
+############
+############
+
+######################################################################################################
+
+server: Summit
+login.rc.colorado.edu
+wd: /scratch/summit/lindsval@colostate.edu/soil_microcosms_merged_data
+
+
+/scripts
+rep-seqs-merged.qza
+mergedtable.qza
+taxonomy_silva_merged.qzv
+featuretable_rare1330_merged.qza
+featuretable_rare1330_merged.qzv
+featuretable_FILTERED.qza
+featuretable_rare1330_FILTERED.qza
+taxabarplot_unrarefied.qzv
+taxabarplot_rare1330.qzv
+alpha_rarefaction_curves.qzv
+tree_merged.qza
+placements_merged.qza
+core-metrics-results
+ancom_treatment.qzv
+ancom_day.qzv
+
+/metadata
+16S_exudate_mapping_merged.txt
+
+######################################################################################################
+
+
+############
+############
+2. MERGE DATA FROM TWO DIFFERENT RUNS
+############
+############
+
+######################################################################################################
+
+#create new directory
+mkdir soil_microcosms_merged_data
+cd soil_microcosms_merged_data
+
+#Before running these commands put all of the files into the new directory using filezilla. 
+
+#To merged two runs, we need to start with the two qza files from the dada2 tables...
+ 
+qiime feature-table merge \
+--i-tables table.qza \
+--i-tables dada2_table.agribiome.qza \
+--o-merged-table mergedtable.qza
+
+Next we will merge the rep-seq files
+
+qiime feature-table merge-seqs \
+--i-data rep-seqs.qza \
+--i-data dada2_rep_seqs.qza \
+--o-merged-data rep-seqs-merged.qza
+
+######################################################################################################
+
+############
+############
+3. SILVA
+############
+############
+
+######################################################################################################
+
+
+wget -O "silva-132-99-515-806-nb-classifier.qza" "https://data.qiime2.org/2019.10/common/silva-132-99-515-806-nb-classifier.qza"
+
+nano taxonomy_silva.sh
+
+#!/bin/sh
+#SBATCH --job-name=taxonomy_silva
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=shas
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lindsval@colostate.edu
+
+#Activate qiime
+conda activate qiime2-2020.11
+
+#Command
+qiime feature-classifier classify-sklearn \
+--i-reads rep-seqs-merged.qza \
+--i-classifier silva-132-99-515-806-nb-classifier.qza \
+--o-classification taxonomy_silva_merged.qza  
+
+
+#submit the job 
+sbatch taxonomy_silva.sh
+
+#merged the two metadata files manually using excel (now called 16S_exudate_mapping_merged.txt), put it in the directory then ran:
+
+#TURN INTO VISUALIZATION
+
+qiime metadata tabulate \
+--m-input-file taxonomy_silva_merged.qza \
+--o-visualization taxonomy_silva_merged.qzv
+
+
+######################################################################################################
+
+############
+############
+############
+4. RAREFY
+############
+############
+############
+
+######################################################################################################
+
+#rarefy at 1330 to exclude the two bad samples (54 and 52); decided this based on the merged data2 table 
+
+
+#create file
+nano rarefy.sh
+
+
+#!/bin/sh
+#SBATCH --job-name=rarefy
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=shas
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lindsval@colostate.edu
+
+source activate qiime2-2019.10
+
+qiime feature-table rarefy \
+  --i-table mergedtable.qza \
+  --p-sampling-depth 1330 \
+  --o-rarefied-table featuretable_rare1330_merged.qza
+
+qiime feature-table summarize \
+    --i-table featuretable_rare1330_merged.qza \
+    --m-sample-metadata-file 16S_exudate_mapping_merged.txt \
+    --o-visualization featuretable_rare1330_merged.qzv
+
+sbatch rareify.sh
+
+######################################################################################################
+
+############
+############
+############
+5. TAXABARPLOT & FILTER
+############
+############
+############
+
+######################################################################################################
+
+
+#make file 
+taxabarplot.sh
+
+#!/bin/sh
+#SBATCH --job-name=taxabarplot
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=shas
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lindsval@colostate.edu
+
+source activate qiime2-2019.10
+
+#unrarefied feature table
+qiime taxa filter-table \
+--i-table mergedtable.qza \
+--i-taxonomy taxonomy_silva_merged.qza \
+--p-exclude mitochondria,chloroplast \
+--o-filtered-table featuretable_FILTERED.qza
+
+#rarefied feature table
+qiime taxa filter-table \
+--i-table featuretable_rare1330_merged.qza \
+--i-taxonomy taxonomy_silva_merged.qza \
+--p-exclude mitochondria,chloroplast \
+--o-filtered-table featuretable_rare1330_FILTERED.qza
+
+#unrarefied
+qiime taxa barplot \
+--i-table featuretable_FILTERED.qza \
+--i-taxonomy taxonomy_silva_merged.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--o-visualization taxabarplot_unrarefied.qzv
+
+
+#rarefied
+qiime taxa barplot \
+--i-table featuretable_rare1330_FILTERED.qza \
+--i-taxonomy taxonomy_silva_merged.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--o-visualization taxabarplot_rare1330.qzv
+
+
+sbatch taxabarplot.sh
+
+
+######################################################################################################
+
+############
+############
+############
+6. ALPHA RAREFACTION
+############
+############
+############
+
+######################################################################################################
+
+qiime diversity alpha-rarefaction \
+--i-table featuretable_rare1330_FILTERED.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--o-visualization alpha_rarefaction_curves.qzv \
+--p-min-depth 10 \
+--p-max-depth 1330
+
+
+
+######################################################################################################
+
+############
+############
+############
+7. TREE
+############
+############
+############
+
+######################################################################################################
+
+#Make tree via fragment insertion plugin.
+
+#wget the sepp-refs tree
+wget \
+  -O "sepp-refs-gg-13-8.qza" \
+  "https://data.qiime2.org/2019.10/common/sepp-refs-gg-13-8.qza"
+
+#make phyogenetic tree
+nano tree.sh
+
+#!/bin/sh
+#SBATCH --job-name=coreddiv
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=shas
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lindsval@colostate.edu
+
+source activate qiime2-2019.10
+
+qiime fragment-insertion sepp \
+--i-representative-sequences rep-seqs-merged.qza \
+--i-reference-database sepp-refs-gg-13-8.qza \
+--p-threads 7 \
+--o-tree tree_merged.qza \
+--o-placements placements_merged.qza
+
+#this took about 9 hours.
+
+
+######################################################################################################
+
+############
+############
+############
+8. CORE DIVERSITY PLOTS
+############
+############
+############
+
+######################################################################################################
+
+#Make core diversity plots
+nano corediversity.sh
+
+#!/bin/sh
+#SBATCH --job-name=coreddiv
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=shas
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lindsval@colostate.edu
+
+source activate qiime2-2019.10
+
+qiime diversity core-metrics-phylogenetic \
+--i-phylogeny tree_merged.qza \
+--i-table mergedtable.qza  \
+--p-sampling-depth 1330 \
+--p-n-jobs 1 \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--output-dir core-metrics-results
+ 
+
+######################################################################################################
+
+############
+############
+############
+9. ALPHA DIVERSITY PLOTS
+############
+############
+############
+
+######################################################################################################
+
+#alpha diversity
+qiime diversity alpha-group-significance \
+--i-alpha-diversity core-metrics-results/shannon_vector.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--o-visualization core-metrics-results/shannon_statistics2.qzv
+
+
+qiime diversity alpha-group-significance \
+--i-alpha-diversity core-metrics-results/faith_pd_vector.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--o-visualization core-metrics-results/faith_pd_vector.qzv
+
+qiime diversity alpha-group-significance 
+--i-alpha-diversity core-metrics-results/evenness_vector.qza 
+--m-metadata-file 16S_exudate_mapping_merged.txt 
+--o-visualization core-metrics-results/evenness_vector.qzv
+
+
+######################################################################################################
+
+############
+############
+############
+10. BETA DIVERSITY PLOTS
+############
+############
+############
+
+######################################################################################################
+
+#beta group significance by Treatment: 
+
+nano betagroupsig.sh
+
+#!/bin/sh
+#SBATCH --job-name=beatgrpsig
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=shas
+#SBATCH --time=12:00:00
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=lindsval@colostate.edu
+
+source activate qiime2-2019.10
+
+qiime diversity beta-group-significance \
+--i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--m-metadata-column Treatment \
+--o-visualization betagroupsig.qzv \
+--output-dir beta-group-significance
+
+######################################################################################################
+
+#export the data
+qiime tools export \
+--input-path taxonomy_silva_merged.qza \
+--output-path exported
+
+#create a copy 
+cp exported/taxonomy.tsv biom-taxonomy.tsv
+
+#extract the feature table
+qiime tools export \
+--input-path mergedtable.qza \ #think I used the wrong table here.
+--output-path exported
+
+#using fileZilla, transfer the file (feature-table.biom) from the exported directory into the microcosms2 directory then run: 
+#convert to tsv file
+
+biom convert \
+-i feature-table.biom \
+-o biom-feature-table.tsv \
+--to-tsv 
+
+qiime metadata tabulate \
+--m-input-file 16S_exudate_mapping_merged.txt \
+--o-visualization 16S_exudate_mapping_merged.qzv
+
+
+
+######################################################################################################
+
+############
+############
+############
+11. ANCOM
+############
+############
+############
+
+######################################################################################################
+
+ANCOM is the best statistical model to use when wanting to compare realtive abundance of ASV to timepoints or treatment
+this model with add the pseudocount of 1. ANCOM does a better job of dealing with abundances 
+and can give you more information about important ASV. Do ANCOM not ANOVA! 
+
+qiime feature-table filter-features \
+  --i-table ./mergedtable.qza \
+  --p-min-frequency 50 \
+  --p-min-samples 4 \
+  --o-filtered-table ./mergedtable_ancom.qza
+
+
+qiime composition add-pseudocount \
+  --i-table ./mergedtable_ancom.qza \
+  --o-composition-table ./mergedtable_ancom_comp.qza
+  
+qiime composition ancom --i-table ./mergedtable_ancom_comp.qza --m-metadata-file ./16S_exudate_mapping_merged.txt --m-metadata-column Treatment --o-visualization ./ancom_treatment.qzv
+
+qiime composition ancom --i-table ./mergedtable_ancom_comp.qza --m-metadata-file ./16S_exudate_mapping_merged.txt --m-metadata-column Day --o-visualization ./ancom_day.qzv
+
+
+######################################################################################################
+
+Alright so trying to do an ANCOM between control and e1 and control and e2, we need to do this
+because ancom cannot handle multiple comparisons, only 2 at a time. After chatting with heather	
+we think the bets approach is to do 2 separate ANCOMs, think I need to rerun some stuff so
+that I can get a new table.qza with just the  controls and e1 and controls and e2. 
+
+
+######################################################################################################
+
+FILTER FEATURE TABLES
+
+#Filter for just e1 and controls
+qiime feature-table filter-samples \
+--i-table mergedtable.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--p-where "[Treatment] IN ('E1', 'Control')" \
+--p-no-exclude-ids \
+--o-filtered-table e1_table.qza
+
+
+#visualize table to verify we have what we wanted
+qiime feature-table summarize \
+  --i-table e1_table.qza \
+  --o-visualization e1_table.qzv \
+  --m-sample-metadata-file 16S_exudate_mapping_merged.txt
+
+#filter for e2 and controls
+qiime feature-table filter-samples \
+--i-table mergedtable.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--p-where "[Treatment] IN ('E2', 'Control')" \
+--p-no-exclude-ids \
+--o-filtered-table e1_table.qza
+
+qiime feature-table summarize \
+  --i-table e2_table.qza \
+  --o-visualization e2_table.qzv \
+  --m-sample-metadata-file 16S_exudate_mapping_merged.txt
+
+######################################################################################################
+
+ANCOM ON E1 VS. CONTROL
+
+qiime feature-table filter-features \
+  --i-table ./e1_table.qza \
+  --p-min-frequency 50 \
+  --p-min-samples 4 \
+  --o-filtered-table ./e1_table_ancom.qza
+  
+qiime composition add-pseudocount \
+  --i-table ./e1_table_ancom.qza \
+  --o-composition-table ./e1_table_ancom_comp.qza
+
+qiime composition ancom \
+--i-table ./e1_table_ancom_comp.qza \
+--m-metadata-file ./16S_exudate_mapping_merged.txt \
+--m-metadata-column Treatment \
+--o-visualization ./ancom_treatment_e1.qzv
+
+######################################################################################################
+
+ANCOM ON E2 VS. CONTROL
+
+qiime feature-table filter-features \
+  --i-table ./e2_table.qza \
+  --p-min-frequency 50 \
+  --p-min-samples 4 \
+  --o-filtered-table ./e2_table_ancom.qza
+  
+qiime composition add-pseudocount \
+  --i-table ./e2_table_ancom.qza \
+  --o-composition-table ./e2_table_ancom_comp.qza
+
+qiime composition ancom \
+--i-table ./e2_table_ancom_comp.qza \
+--m-metadata-file ./16S_exudate_mapping_merged.txt \
+--m-metadata-column Treatment \
+--o-visualization ./ancom_treatment_e2.qzv
+
+
+######################################################################################################
+# EXTRACT A TABLE AT THE GENUS LEVEL FOR LEFSE ANALYSIS
+11/9/2020
+
+#use rarefied data for the table 
+
+#collapse table to level 6 taxonomy
+qiime taxa collapse \
+  --i-table featuretable_rare1330_FILTERED.qza \
+  --o-collapsed-table collapsed.table.l6.qza \
+  --i-taxonomy taxonomy_silva_merged.qza \
+  --p-level 6
+
+#can use this feature table because it used the filtered feature table.qza (no mito or chloroplast) to create this feature table
+#using this file in the colorful taxabarplot.
+
+#calculate the relative frequency of the collapsed table to get relative abundance
+qiime feature-table relative-frequency \
+  --i-table collapsed.table.l6.qza \
+  --o-relative-frequency-table collapsed.frequency.table.l6.qza \
+  --output-dir collapsed.frequency
+
+#export biom file
+qiime tools export \
+  --input-path collapsed.frequency.table.l6.qza \
+  --output-path collapsed.frequency
+
+#convert to tsv file
+biom convert \
+-i feature-table-realtive-frequency.biom \
+-o feature-table-realtive-frequency.biom.tsv \
+--to-tsv
+
+#once exported, I opened in excel and changed the sample ID to the actual name of the sample. 
+then formatted for LEFSE analysis. 
+
+
+
+# for the colorful taxa bar plots Heather sent to me, trying to upload and convert the taxonomy
+# file so there are no prefixes and so that it is in the .qza file format.
+qiime tools import \
+--type FeatureData[Taxonomy] \
+--source-format HeaderlessTSVTaxonomyFormat \
+--input-path taxonomy_merged_data_no_pre.txt \
+--output-path taxonomy_merged_data_no_pre.qza
+
+
+#See if we can use this collapsed L6 table for the feature table since this was made with the rarefied and flltered feature table (correct)
+#We can!!
+
+qiime feature-table summarize \
+  --i-table collapsed.table.6.qza \
+  --o-visualization collapsed.table.6.qzv \
+  --m-sample-metadata-file 16S_exudate_mapping_merged.txt
+  
+#extract the feature table
+qiime tools export --input-path collapsed.table.6.qza --output-path exported
+
+cd exported
+
+biom convert \
+-i feature-table.biom \
+-o feature-table.tsv \
+--to-tsv
+
+qiime feature-table summarize \
+  --i-table mergedtable.qza \
+  --o-visualization mergedtable.qzv \
+  --m-sample-metadata-file 16S_exudate_mapping_merged.txt
+
+
+
+qiime metadata tabulate \
+--m-input-file rep-seqs-merged.qza \
+--o-visualization rep-seqs-merged.qzv
+
+
+#PERMANOVA
+#Jan 27 2022
+#run permanova to determine significance in communities between treatment and days
+#permanova can only hand categorical data - so change numbers in the day column to the word for that number. 
+
+#activate qiime
+
+#only worked this way for some reason... :
+conda activate /projects/lindsval@colostate.edu/miniconda3/envs/qiime2-2020.11
+
+#unweighted, can alternatively do weighted
+qiime diversity beta-group-significance \
+--i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--m-metadata-column Day \
+--o-visualization unweighted-unifrac-day-significance.qzv
+
+qiime diversity beta-group-significance \
+--i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--m-metadata-column Treatment \
+--o-visualization unweighted-unifrac-treatment-significance.qzv
+
+
+#betagroup significance with pairwise
+qiime diversity beta-group-significance \
+--i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--m-metadata-column Day \
+--o-visualization unweighted-unifrac-day-significance.qzv \
+--p-pairwise
+
+#betagroup significance with pairwise
+qiime diversity beta-group-significance \
+--i-distance-matrix unweighted_unifrac_distance_matrix.qza \
+--m-metadata-file 16S_exudate_mapping_merged.txt \
+--m-metadata-column Treatment \
+--o-visualization unweighted-unifrac-treatment-significance.qzv \
+--p-pairwise
+
+
+
+#from class ex: 
+qiime diversity beta-group-significance 
+--i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza 
+--m-metadata-file 16S_exudate_mapping_merged.txt 
+--m-metadata-column days_since_birth 
+--o-visualization core-metrics-results/unweighted-unifrac-dayssincebirth-significance.qzv
+
+qiime diversity beta-group-significance 
+--i-distance-matrix core-metrics-results/weighted_unifrac_distance_matrix.qza 
+--m-metadata-file 2020_class_metadata_final.txt 
+--m-metadata-column days_since_birth 
+--o-visualization core-metrics-results/weighted-unifrac-dayssincebirth-significance.qzv
+
+
+
+
+
+
+
+
+
+
+
+
+
